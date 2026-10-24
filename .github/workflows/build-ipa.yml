@@ -1,0 +1,45 @@
+name: Build unsigned IPA
+# Builds the iPhone app on a cloud Mac without signing, so it can be
+# sideloaded from Windows (e.g. Sideloadly re-signs it with a free Apple ID).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/house-capture/**'
+      - '.github/workflows/build-ipa.yml'
+permissions:
+  contents: read
+jobs:
+  ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode (needs the iOS 26+ SDK)
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - run: brew install xcodegen
+      - name: Generate project
+        working-directory: apps/house-capture
+        run: xcodegen generate
+      - name: Build (unsigned)
+        working-directory: apps/house-capture
+        run: |
+          xcodebuild -project HouseCapture.xcodeproj -scheme HouseCapture \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package IPA
+        working-directory: apps/house-capture
+        run: |
+          mkdir -p out/Payload
+          cp -R build/Build/Products/Release-iphoneos/HouseCapture.app out/Payload/
+          cd out && zip -qry HouseCapture-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HouseCapture-unsigned-ipa
+          path: apps/house-capture/out/HouseCapture-unsigned.ipa
+          retention-days: 14
